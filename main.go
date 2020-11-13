@@ -12,7 +12,6 @@ type customResponseWriter struct {
 	origWriter http.ResponseWriter
 	statusCode int
 	req        *http.Request
-	logged     bool
 }
 
 func (c *customResponseWriter) Header() http.Header {
@@ -20,7 +19,6 @@ func (c *customResponseWriter) Header() http.Header {
 }
 
 func (c *customResponseWriter) Write(b []byte) (int, error) {
-	c.logAccess()
 	n, err := c.origWriter.Write(b)
 	c.logAccessError(err)
 	return n, err
@@ -30,6 +28,8 @@ func (c *customResponseWriter) WriteHeader(statusCode int) {
 	c.statusCode = statusCode
 	if statusCode >= http.StatusBadRequest {
 		c.logAccessError(fmt.Errorf("status code set to %d", statusCode))
+	} else {
+		c.logAccess()
 	}
 	c.origWriter.WriteHeader(statusCode)
 }
@@ -43,18 +43,13 @@ func (c *customResponseWriter) getLogEntry() *log.Entry {
 }
 
 func (c *customResponseWriter) logAccess() {
-	if c.logged {
-		return
-	}
-	c.logged = true
 	c.getLogEntry().Info("accessed")
 }
 
 func (c *customResponseWriter) logAccessError(err error) {
-	if c.logged || err == nil {
+	if err == nil {
 		return
 	}
-	c.logged = true
 	c.getLogEntry().WithError(err).Error("accessed with error")
 }
 
