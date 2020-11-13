@@ -20,38 +20,42 @@ func (c *customResponseWriter) Header() http.Header {
 }
 
 func (c *customResponseWriter) Write(b []byte) (int, error) {
-	c.logAccess(nil)
+	c.logAccess()
 	n, err := c.origWriter.Write(b)
-	if err != nil {
-		c.logAccess(err)
-	}
+	c.logAccessError(err)
 	return n, err
 }
 
 func (c *customResponseWriter) WriteHeader(statusCode int) {
 	c.statusCode = statusCode
 	if statusCode >= http.StatusBadRequest {
-		c.logAccess(fmt.Errorf("status code set to %d", statusCode))
+		c.logAccessError(fmt.Errorf("status code set to %d", statusCode))
 	}
 	c.origWriter.WriteHeader(statusCode)
 }
 
-func (c *customResponseWriter) logAccess(err error) {
-	if c.logged && err == nil {
-		return
-	}
-	c.logged = true
-
+func (c *customResponseWriter) getLogEntry() *log.Entry {
 	l := log.NewEntry(log.StandardLogger())
 	if c.req != nil {
 		l = log.WithField("method", c.req.Method).WithField("path", c.req.URL)
 	}
+	return l
+}
 
-	if err != nil {
-		l.WithError(err).Error("accessed with error")
-	} else {
-		l.Info("accessed")
+func (c *customResponseWriter) logAccess() {
+	if c.logged {
+		return
 	}
+	c.logged = true
+	c.getLogEntry().Info("accessed")
+}
+
+func (c *customResponseWriter) logAccessError(err error) {
+	if c.logged || err == nil {
+		return
+	}
+	c.logged = true
+	c.getLogEntry().WithError(err).Error("accessed with error")
 }
 
 type fileServerWrapper struct {
