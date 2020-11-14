@@ -16,6 +16,7 @@ import (
 type fileServerWrapper struct {
 	listHandler   http.Handler
 	uploadHandler http.Handler
+	path          string
 	enableUpload  bool
 }
 
@@ -33,6 +34,7 @@ func NewFileServer(path string, uploadable bool) (*fileServerWrapper, error) {
 	return &fileServerWrapper{
 		listHandler:   listHandler,
 		uploadHandler: uploadHandler,
+		path:          path,
 		enableUpload:  uploadable,
 	}, nil
 }
@@ -41,7 +43,7 @@ func (f *fileServerWrapper) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	var writer http.ResponseWriter
 	writer = responsemiddleware.NewLogMiddleware(w, req)
 	if f.enableUpload {
-		writer = responsemiddleware.NewUploadMiddleware(writer)
+		writer = responsemiddleware.NewUploadMiddleware(writer, req, f.path)
 		if req.Method == http.MethodPost {
 			f.uploadHandler.ServeHTTP(writer, req)
 		} else {
