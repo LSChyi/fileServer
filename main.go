@@ -77,11 +77,15 @@ type fileServerWrapper struct {
 	path    string
 }
 
-func NewFileServer(path string) *fileServerWrapper {
-	return &fileServerWrapper{
-		handler: http.FileServer(http.Dir(path)),
-		path:    path,
+func NewFileServer(path string) (*fileServerWrapper, error) {
+	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		return nil, err
 	}
+	return &fileServerWrapper{
+		handler: http.FileServer(http.Dir(dir)),
+		path:    path,
+	}, nil
 }
 
 func (f *fileServerWrapper) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -103,7 +107,13 @@ func (f *fileServerWrapper) handlUpload(w http.ResponseWriter, req *http.Request
 	}
 	defer file.Close()
 
-	if err := saveFile(filepath.Join(f.path, req.URL.Path), header, file); err != nil {
+	finalPath := filepath.Clean(filepath.Join(f.path, req.URL.Path))
+	if _, err := filepath.Rel(f.path, finalPath); err != nil {
+		http.Error(w, "can not upload to the path", http.StatusUnprocessableEntity)
+		return err
+	}
+
+	if err := saveFile(finalPath, header, file); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return err
 	}
@@ -136,7 +146,11 @@ func main() {
 	directory := flag.String("d", ".", "directory to server")
 	flag.Parse()
 
-	http.Handle("/", NewFileServer(*directory))
+	server, err := NewFileServer(*directory)
+	if err != nil {
+		log.WithError(err).Fatal("can not create file server")
+	}
+	http.Handle("/", server)
 	log.WithField("port", *port).WithField("directory", *directory).Info("Serving file server")
 	if err := http.ListenAndServe(":"+*port, nil); err != nil {
 		log.WithError(err).Fatal("encounter error")
