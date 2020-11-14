@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/lschyi/fileServer/handler"
@@ -60,9 +62,41 @@ func main() {
 	if err != nil {
 		log.WithError(err).Fatal("can not create file server")
 	}
+
+	if *uploadable {
+		log.Warning("The upload is enabled, anyone can upload any files to this server, use it with care")
+	}
+
+	ips, err := getIPs()
+	if err != nil {
+		log.WithError(err).Fatal("encounter error when listing available IPs")
+	}
+	fmt.Println("The server is listening on all interfaces, you can access it via the following address(es):")
+	fmt.Println("")
+	for _, ip := range ips {
+		fmt.Println("\thttp://" + ip.String() + ":" + *port)
+	}
+	fmt.Println("")
+
 	http.Handle("/", server)
 	log.WithField("port", *port).WithField("directory", *directory).WithField("enable upload", *uploadable).Info("Serving file server")
 	if err := http.ListenAndServe(":"+*port, nil); err != nil {
 		log.WithError(err).Fatal("encounter error")
 	}
+}
+
+func getIPs() ([]net.IP, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	IPs := make([]net.IP, 0)
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok {
+			if ipnet.IP.To4() != nil {
+				IPs = append(IPs, ipnet.IP)
+			}
+		}
+	}
+	return IPs, nil
 }
