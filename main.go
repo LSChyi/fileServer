@@ -2,92 +2,42 @@ package main
 
 import (
 	"flag"
-	"io"
-	"mime/multipart"
 	"net/http"
-	"os"
-	"path/filepath"
 
-	"github.com/lschyi/fileServer/middleware"
+	"github.com/lschyi/fileServer/handler"
+	handlermiddleware "github.com/lschyi/fileServer/middleware/handler"
+	responsemiddleware "github.com/lschyi/fileServer/middleware/responsewriter"
 
 	log "github.com/sirupsen/logrus"
 )
 
 type fileServerWrapper struct {
-	handler http.Handler
-	path    string
+	listHandler   http.Handler
+	uploadHandler http.Handler
 }
 
 func NewFileServer(path string) (*fileServerWrapper, error) {
-	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	fileServer := handler.NewFileServer(path)
+	listHandler := handlermiddleware.NewListHandler(fileServer)
+	uploadHandler, err := handlermiddleware.NewUploadHandler(fileServer, path)
 	if err != nil {
 		return nil, err
 	}
 	return &fileServerWrapper{
-		handler: http.FileServer(http.Dir(dir)),
-		path:    path,
+		listHandler:   listHandler,
+		uploadHandler: uploadHandler,
 	}, nil
 }
 
 func (f *fileServerWrapper) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if req.Method == http.MethodPost {
-		if entry, err := f.handlUpload(w, req); err != nil {
-			entry.WithError(err).Errorf("can not upload file")
-			return
-		}
-	}
 	var writer http.ResponseWriter
-	writer = middleware.NewLogMiddleware(w, req)
-	writer = middleware.NewUploadMiddleware(writer)
-	f.handler.ServeHTTP(writer, req)
-}
-
-func (f *fileServerWrapper) handlUpload(w http.ResponseWriter, req *http.Request) (*log.Entry, error) {
-	//entry := getAccessLogEntry(req)
-	entry := log.WithField("test", "test")
-	file, header, err := extractForm(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-		return entry, err
+	writer = responsemiddleware.NewLogMiddleware(w, req)
+	writer = responsemiddleware.NewUploadMiddleware(writer)
+	if req.Method == http.MethodPost {
+		f.uploadHandler.ServeHTTP(writer, req)
+	} else {
+		f.listHandler.ServeHTTP(writer, req)
 	}
-	defer file.Close()
-	entry = entry.WithField("filename", header.Filename)
-
-	finalPath := filepath.Clean(filepath.Join(f.path, req.URL.Path))
-	if _, err := filepath.Rel(f.path, finalPath); err != nil {
-		http.Error(w, "can not upload to the path", http.StatusUnprocessableEntity)
-		return entry, err
-	}
-	entry.Info("try uplading file")
-
-	if err := saveFile(finalPath, header, file, entry); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return entry, err
-	}
-	return nil, nil
-}
-
-func extractForm(req *http.Request) (multipart.File, *multipart.FileHeader, error) {
-	if err := req.ParseMultipartForm(32 << 20); err != nil {
-		return nil, nil, err
-	}
-	return req.FormFile("file")
-}
-
-func saveFile(path string, header *multipart.FileHeader, file multipart.File, entry *log.Entry) error {
-	dstPath := filepath.Join(path, header.Filename)
-	dst, err := os.Create(dstPath)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
-		return err
-	}
-	entry.WithField("file path", dstPath).Info("file uploaded")
-
-	return nil
 }
 
 func main() {
