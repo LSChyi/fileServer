@@ -2,79 +2,16 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 
+	"github.com/lschyi/fileServer/middleware"
+
 	log "github.com/sirupsen/logrus"
 )
-
-type customResponseWriter struct {
-	origWriter   http.ResponseWriter
-	statusCode   int
-	req          *http.Request
-	formInjected bool
-}
-
-func (c *customResponseWriter) Header() http.Header {
-	return c.origWriter.Header()
-}
-
-func (c *customResponseWriter) injectForm() {
-	c.formInjected = true
-	form := `<hr />
-	<form enctype="multipart/form-data" method="post">
-		<input name="file" type="file" />
-		<input type="submit" value="upload" />
-	</form>
-<hr />`
-	c.origWriter.Write([]byte(form))
-}
-
-func (c *customResponseWriter) Write(b []byte) (int, error) {
-	if !c.formInjected {
-		c.injectForm()
-	}
-	n, err := c.origWriter.Write(b)
-	c.logAccessError(err)
-	return n, err
-}
-
-func (c *customResponseWriter) WriteHeader(statusCode int) {
-	c.statusCode = statusCode
-	if statusCode >= http.StatusBadRequest {
-		c.logAccessError(fmt.Errorf("status code set to %d", statusCode))
-	} else {
-		c.logAccess()
-	}
-	c.origWriter.WriteHeader(statusCode)
-}
-
-func (c *customResponseWriter) logAccess() {
-	c.getLogEntry().Info("accessed")
-}
-
-func (c *customResponseWriter) logAccessError(err error) {
-	if err == nil {
-		return
-	}
-	c.getLogEntry().WithError(err).Error("accessed with error")
-}
-
-func (c *customResponseWriter) getLogEntry() *log.Entry {
-	return getAccessLogEntry(c.req)
-}
-
-func getAccessLogEntry(req *http.Request) *log.Entry {
-	l := log.NewEntry(log.StandardLogger())
-	if req != nil {
-		l = log.WithField("method", req.Method).WithField("path", req.URL)
-	}
-	return l
-}
 
 type fileServerWrapper struct {
 	handler http.Handler
@@ -99,12 +36,15 @@ func (f *fileServerWrapper) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 			return
 		}
 	}
-	writer := &customResponseWriter{origWriter: w, req: req}
+	var writer http.ResponseWriter
+	writer = middleware.NewLogMiddleware(w, req)
+	writer = middleware.NewUploadMiddleware(writer)
 	f.handler.ServeHTTP(writer, req)
 }
 
 func (f *fileServerWrapper) handlUpload(w http.ResponseWriter, req *http.Request) (*log.Entry, error) {
-	entry := getAccessLogEntry(req)
+	//entry := getAccessLogEntry(req)
+	entry := log.WithField("test", "test")
 	file, header, err := extractForm(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
