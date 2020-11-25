@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 )
 
+const (
+	IndexFileName = "index.html"
+)
+
 type UploadMiddleware struct {
 	http.ResponseWriter
 	req                *http.Request
@@ -49,6 +53,11 @@ func (u *UploadMiddleware) shouldInject() bool {
 	dstPath := filepath.Join(u.path, u.req.URL.Path)
 	info, err := os.Stat(dstPath)
 	if err != nil {
+		return false
+	}
+	// if there is an index.html, by default will use it as the page
+	indexFilePath := filepath.Join(u.path, u.req.URL.Path, IndexFileName)
+	if _, err := os.Stat(indexFilePath); err == nil {
 		return false
 	}
 	return info.IsDir()
